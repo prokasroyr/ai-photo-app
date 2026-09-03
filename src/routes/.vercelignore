@@ -1,4 +1,4 @@
 ai-server
+ai-server/**
+**/*.py
 requirements.txt
-venv
-*.py
