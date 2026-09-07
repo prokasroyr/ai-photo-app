@@ -10,42 +10,59 @@ export default function Result() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const [matchedPhotos, setMatchedPhotos] = useState(
-    location.state?.matchedPhotos || []
-  );
+  // ১. ইনিশিয়াল স্টেট (Router State, SessionStorage অথবা ফ্যালব্যাক)
+  const [matchedPhotos, setMatchedPhotos] = useState(() => {
+    if (location.state?.matchedPhotos?.length > 0) {
+      sessionStorage.setItem(`photos_${jobId}`, JSON.stringify(location.state.matchedPhotos));
+      return location.state.matchedPhotos;
+    }
+    const saved = sessionStorage.getItem(`photos_${jobId}`);
+    return saved ? JSON.parse(saved) : [];
+  });
+
   const [eventId, setEventId] = useState(
-    location.state?.eventId || "default_event"
+    location.state?.eventId || localStorage.getItem("lastEventId") || "default_event"
   );
   
-  // LocalStorage অথবা রেজাল্ট থেকে স্টুডিওর নাম তুলে নেওয়ার লজিক
   const [studioName, setStudioName] = useState(
     () => location.state?.studioName || localStorage.getItem("studioName") || ""
   );
 
   const [favorites, setFavorites] = useState(() => getFavorites(eventId));
-  const [loading, setLoading] = useState(!location.state?.matchedPhotos);
+  const [loading, setLoading] = useState(matchedPhotos.length === 0 && !!jobId);
 
-  // পেজ রিফ্রেশ দিলে ব্যাকএন্ড থেকে ডেটা রিকভার করার লজিক
+  // ২. যদি কোনো কারণে স্টেট ফাঁকা থাকে, ব্যাকএন্ড থেকে ডেটা রিকভার করা
   useEffect(() => {
-    if (!location.state?.matchedPhotos && jobId) {
+    if (matchedPhotos.length === 0 && jobId) {
+      setLoading(true);
       fetch(`${AI_SERVER}/search-status/${jobId}`)
         .then((res) => res.json())
         .then((data) => {
-          if (data.status === "completed") {
-            setMatchedPhotos(data.matches || []);
-            if (data.eventId) {
-              setEventId(data.eventId);
-              setFavorites(getFavorites(data.eventId));
-            }
-            if (data.studioName) {
-              setStudioName(data.studioName);
-            }
+          // ব্যাকএন্ডের সম্ভাব্য সব ধরনের কি (Key) চেক করা হচ্ছে
+          const photos =
+            data.matches ||
+            data.matchedPhotos ||
+            data.matched_photos ||
+            data.results ||
+            [];
+
+          if (photos.length > 0) {
+            setMatchedPhotos(photos);
+            sessionStorage.setItem(`photos_${jobId}`, JSON.stringify(photos));
+          }
+
+          if (data.eventId) {
+            setEventId(data.eventId);
+            setFavorites(getFavorites(data.eventId));
+          }
+          if (data.studioName) {
+            setStudioName(data.studioName);
           }
         })
         .catch(console.error)
         .finally(() => setLoading(false));
     }
-  }, [jobId, location.state]);
+  }, [jobId, matchedPhotos.length]);
 
   const handleFavToggle = (photo) => {
     const updatedFavs = toggleFavorite(eventId, photo);
@@ -53,7 +70,11 @@ export default function Result() {
   };
 
   if (loading) {
-    return <div className="text-center py-20 font-semibold text-gray-600">Loading Results...</div>;
+    return (
+      <div className="text-center py-20 font-semibold text-gray-600">
+        Fetching your results...
+      </div>
+    );
   }
 
   return (
@@ -74,7 +95,9 @@ export default function Result() {
           {/* একাধিক JPG ডাউনলোড বাটন */}
           <button
             onClick={() => {
-              const urls = matchedPhotos.map((item) => item.imageUrl || item.url || item.cloudinaryUrl);
+              const urls = matchedPhotos.map(
+                (item) => item.imageUrl || item.url || item.cloudinaryUrl || item.path
+              );
               const currentStudio = studioName || localStorage.getItem("studioName") || "Studio Name";
               handleMultipleDownloads(urls, currentStudio);
             }}
@@ -86,12 +109,20 @@ export default function Result() {
       </div>
 
       {matchedPhotos.length === 0 ? (
-        <p className="text-center text-gray-500 py-10">No photos matched your face.</p>
+        <div className="text-center py-16 bg-white rounded-xl border border-dashed my-4">
+          <p className="text-gray-500 font-medium">No photos matched your face.</p>
+          <button
+            onClick={() => navigate("/search")}
+            className="mt-4 text-sm bg-blue-50 text-blue-600 px-4 py-2 rounded-lg hover:bg-blue-100 transition"
+          >
+            Try Searching Again
+          </button>
+        </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {matchedPhotos.map((photo, index) => {
-            const photoUrl = photo.imageUrl || photo.cloudinaryUrl || photo.url;
-            const isFav = favorites.some((fav) => (fav.imageUrl || fav.url) === photoUrl);
+            const photoUrl = photo.imageUrl || photo.cloudinaryUrl || photo.url || photo.path;
+            const isFav = favorites.some((fav) => (fav.imageUrl || fav.url || fav.path) === photoUrl);
 
             return (
               <div key={index} className="relative bg-white rounded-lg overflow-hidden border shadow-sm group">
