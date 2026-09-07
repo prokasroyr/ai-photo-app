@@ -126,8 +126,8 @@ class DownloadZipRequest(BaseModel):
     watermarkText: Optional[str] = None
 
 # ---------------- HELPER: IMAGE RESIZER ----------------
-def resize_image_if_large(img_np: np.ndarray, max_dim: int = 400) -> np.ndarray:
-    """ফ্রি RAM (512MB) বাঁচাতে ছবি ৪০০ পিক্সেলে নামিয়ে আনবে"""
+def resize_image_if_large(img_np: np.ndarray, max_dim: int = 800) -> np.ndarray:
+    """৮০০ পিক্সেলে নামিয়ে আনবে যাতে ফেস রিকগনিশন নিখুঁত হয়"""
     h, w = img_np.shape[:2]
     if max(h, w) > max_dim:
         scale = max_dim / float(max(h, w))
@@ -218,13 +218,14 @@ def process_event_photos_task(event_id: str):
                     if img is None or img.size == 0:
                         raise Exception("Corrupt or empty image")
 
-                    # ক্র্যাশ রুখতে ৪০০ পিক্সেল রিসাইজ লজিক
-                    img = resize_image_if_large(img, max_dim=400)
+                    # ৮০০ পিক্সেল রিসাইজ (যাতে মুখ স্পষ্ট থাকে)
+                    img = resize_image_if_large(img, max_dim=800)
 
                     rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
                     rgb_img = np.ascontiguousarray(rgb_img, dtype=np.uint8)
 
-                    face_locations = face_recognition.face_locations(rgb_img, model="hog")
+                    # upsample=1 ব্যবহার করা হচ্ছে যাতে ছোট মুখগুলো সহজে ডিটেক্ট হয়
+                    face_locations = face_recognition.face_locations(rgb_img, number_of_times_to_upsample=1, model="hog")
                     face_encodings = face_recognition.face_encodings(rgb_img, face_locations)
 
                     if len(face_encodings) > 0:
@@ -246,7 +247,6 @@ def process_event_photos_task(event_id: str):
 
                     processed_count += 1
 
-                    # 🧹 মেমোরি খালি করার জন্য কোড
                     del img, rgb_img, face_locations, face_encodings
                     gc.collect()
 
@@ -294,13 +294,14 @@ def perform_face_search(event_id: str, selfie_url: str, job_id: str):
         if img is None:
             raise Exception("Invalid selfie image format")
 
-        img = resize_image_if_large(img, max_dim=400)
+        img = resize_image_if_large(img, max_dim=800)
         rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         rgb_img = np.ascontiguousarray(rgb_img, dtype=np.uint8)
 
-        selfie_encs = face_recognition.face_encodings(rgb_img)
+        # সেলফির মুখ সহজে খোঁজার জন্য upsample যোগ
+        selfie_locs = face_recognition.face_locations(rgb_img, number_of_times_to_upsample=1)
+        selfie_encs = face_recognition.face_encodings(rgb_img, selfie_locs)
         
-        # মেমোরি খালি করুন
         del img, rgb_img
         gc.collect()
 
@@ -327,7 +328,9 @@ def perform_face_search(event_id: str, selfie_url: str, job_id: str):
             for stored_enc in stored_encs:
                 try:
                     enc_arr = np.array(json.loads(stored_enc) if isinstance(stored_enc, str) else stored_enc)
-                    if face_recognition.compare_faces([enc_arr], target_enc, tolerance=0.50)[0]:
+                    
+                    # 🎯 Tolerance বাড়িয়ে 0.60 করা হয়েছে যাতে পারফেক্ট ম্যাচ খুঁজে পায়
+                    if face_recognition.compare_faces([enc_arr], target_enc, tolerance=0.60)[0]:
                         matched = True
                         break
                 except Exception:
@@ -368,10 +371,8 @@ def perform_face_search(event_id: str, selfie_url: str, job_id: str):
 def home():
     return {"status": "online", "message": "AI Engine Server Ready"}
 
-# 📸 NEW: UPLOAD SELFIE ENDPOINT
 @app.post("/upload-selfie")
 async def upload_selfie(file: UploadFile = File(...)):
-    """গেস্ট সেলফি আপলোড করে ক্লাউডিনারির URL রিটার্ন করবে"""
     try:
         upload_result = cloudinary.uploader.upload(
             file.file,
