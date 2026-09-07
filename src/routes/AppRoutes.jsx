@@ -95,9 +95,9 @@ function AppRoutes() {
         />
 
         <Route
-          path="/client/search/:jobId"
-          element={<Searching />}
-        />
+          path="/client/processing/:jobId" 
+          element={<Searching />} />
+        
 
         <Route
           path="/client/result/:jobId"

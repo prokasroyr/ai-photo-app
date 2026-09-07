@@ -164,7 +164,7 @@ function SearchPhotos() {
       // 4. GO TO SEARCHING PAGE
       // ======================================
       console.log("🔎 Opening AI searching page...");
-      navigate(`/client/search/${jobId}`);
+      navigate(`/client/processing/${jobId}`);
 
     } catch (error) {
       console.error("❌ Search Failed:", error);

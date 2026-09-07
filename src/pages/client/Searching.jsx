@@ -1,130 +1,73 @@
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
-import { db } from "../../services/firebase";
+const AI_SERVER = "https://ai-photo-backend-8le8.onrender.com";
 
-import {
-  doc,
-  onSnapshot
-} from "firebase/firestore";
-
-function Searching() {
-
+export default function Searching() {
   const { jobId } = useParams();
   const navigate = useNavigate();
 
   const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState("pending");
+  const [isFailed, setIsFailed] = useState(false);
 
   useEffect(() => {
+    if (!jobId) return;
 
-    if (!jobId) {
-      console.error("❌ Job ID missing");
-      return;
-    }
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${AI_SERVER}/search-status/${jobId}`);
+        const data = await res.json();
 
-    console.log("🔎 Listening AI Job:", jobId);
-
-    // IMPORTANT:
-    // Backend aiJobs collection update করছে
-    const jobRef = doc(
-      db,
-      "aiJobs",
-      jobId
-    );
-
-    const unsubscribe = onSnapshot(
-      jobRef,
-      (snapshot) => {
-
-        if (!snapshot.exists()) {
-          console.log("❌ AI Job not found:", jobId);
-          return;
-        }
-
-        const data = snapshot.data();
-
-        console.log("🔥 AI JOB UPDATE:", data);
-
-        setProgress(data.progress || 0);
-        setStatus(data.status || "pending");
-
-        // AI completed
         if (data.status === "completed") {
-
-          console.log("✅ AI Processing Completed");
-
-          navigate(`/client/result/${jobId}`);
+          clearInterval(interval);
+          // সার্চ কমপ্লিট হলে রেজাল্ট পেজে ডেটাসহ পাঠিয়ে দেওয়া হবে
+          navigate(`/client/result/${jobId}`, {
+            state: {
+              matchedPhotos: data.matches || [],
+              eventId: data.eventId || "default_event",
+            },
+          });
+        } else if (data.status === "failed") {
+          clearInterval(interval);
+          setIsFailed(true);
+        } else {
+          setProgress(data.progress || 50); // প্রোগ্রেস পার্সেন্টেজ আপডেট
         }
-
-        // AI error
-        if (data.status === "error") {
-
-          console.error(
-            "❌ AI Processing Error:",
-            data.error
-          );
-
-        }
-
-      },
-      (error) => {
-
-        console.error(
-          "❌ Firestore Listener Error:",
-          error
-        );
-
+      } catch (err) {
+        console.error("Status polling error:", err);
       }
-    );
+    }, 2000);
 
-    return () => {
-      console.log("🧹 Removing AI Job listener");
-      unsubscribe();
-    };
-
+    return () => clearInterval(interval);
   }, [jobId, navigate]);
 
-  return (
-
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-
-      <div className="bg-white shadow-xl rounded-xl p-8 text-center w-[400px]">
-
-        <h1 className="text-3xl font-bold">
-          🤖 AI Searching...
-        </h1>
-
-        <p className="mt-4 text-gray-600">
-          Please wait, AI is matching your face with event photos...
-        </p>
-
-        {/* Progress Bar */}
-
-        <div className="w-full bg-gray-200 rounded-full h-5 mt-6 overflow-hidden">
-
-          <div
-            className="bg-indigo-600 h-5 rounded-full transition-all duration-500"
-            style={{
-              width: `${progress}%`
-            }}
-          />
-
-        </div>
-
-        <p className="mt-3 font-semibold">
-          {progress}% Complete
-        </p>
-
-        <p className="text-gray-600">
-          Status: {status}
-        </p>
-
+  if (isFailed) {
+    return (
+      <div className="max-w-md mx-auto my-20 p-8 bg-white rounded-2xl shadow-lg text-center border">
+        <h2 className="text-xl font-bold text-red-600 mb-2">❌ Search Failed</h2>
+        <p className="text-sm text-gray-500 mb-6">Could not match any face in this event.</p>
+        <button
+          onClick={() => navigate(-1)}
+          className="bg-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-purple-700 transition"
+        >
+          Try Again
+        </button>
       </div>
+    );
+  }
 
+  return (
+    <div className="max-w-md mx-auto my-20 p-8 bg-white rounded-2xl shadow-lg text-center border">
+      <h2 className="text-2xl font-bold text-gray-800 mb-2">🤖 Finding Your Photos...</h2>
+      <p className="text-sm text-gray-500 mb-6">AI is processing event images to locate your face.</p>
+
+      <div className="w-full bg-gray-200 rounded-full h-4 mb-3 overflow-hidden">
+        <div
+          className="bg-purple-600 h-4 rounded-full transition-all duration-300 animate-pulse"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <p className="text-xs font-semibold text-purple-700">{progress}% Completed</p>
     </div>
-
   );
 }
-
-export default Searching;

@@ -1,326 +1,131 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import { db } from "../../services/firebase";
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  addDoc,
-  serverTimestamp,
-  doc,
-  getDoc,
-} from "firebase/firestore";
+import React, { useState, useEffect } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { getFavorites, toggleFavorite } from "../../utils/favorite";
+import { handleSingleDownload, handleMultipleDownloads } from "../../utils/download";
 
-function Result() {
+const AI_SERVER = "https://ai-photo-backend-8le8.onrender.com";
+
+export default function Result() {
   const { jobId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  const [photos, setPhotos] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedIndex, setSelectedIndex] = useState(null);
-  const [watermarkText, setWatermarkText] = useState("Photography");
+  const [matchedPhotos, setMatchedPhotos] = useState(
+    location.state?.matchedPhotos || []
+  );
+  const [eventId, setEventId] = useState(
+    location.state?.eventId || "default_event"
+  );
+  
+  // LocalStorage অথবা রেজাল্ট থেকে স্টুডিওর নাম তুলে নেওয়ার লজিক
+  const [studioName, setStudioName] = useState(
+    () => location.state?.studioName || localStorage.getItem("studioName") || ""
+  );
 
-  // ==========================================
-  // RENDER AI BACKEND (নতুন Render URL বসান)
-  // ==========================================
-  const AI_SERVER = "YOUR_NEW_RENDER_URL"; // যেমন: https://ai-photo-backend-8le8.onrender.com
+  const [favorites, setFavorites] = useState(() => getFavorites(eventId));
+  const [loading, setLoading] = useState(!location.state?.matchedPhotos);
 
-  // ==========================================
-  // Download Photo With Watermark
-  // ==========================================
-  const downloadPhoto = async (imageUrl, index) => {
-    try {
-      if (!imageUrl) {
-        alert("❌ Photo URL পাওয়া যায়নি");
-        return;
-      }
-
-      const watermark = watermarkText.trim() || "Photography";
-
-      console.log("📥 Downloading photo...");
-      console.log("🔗 Image URL:", imageUrl);
-      console.log("💧 Watermark:", watermark);
-
-      // ======================================
-      // SEND REQUEST TO RENDER BACKEND
-      // ======================================
-      const response = await fetch(`${AI_SERVER}/download-single`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          imageUrl: imageUrl,
-          image_url: imageUrl,
-          filename: `photo-${index + 1}.jpg`,
-          watermarkText: watermark,
-          watermark_text: watermark,
-        }),
-      });
-
-      // ======================================
-      // HANDLE BACKEND ERROR
-      // ======================================
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("❌ Backend Error:", errorText);
-        throw new Error(errorText || "Download failed");
-      }
-
-      // ======================================
-      // GET IMAGE BLOB & DOWNLOAD
-      // ======================================
-      const blob = await response.blob();
-      if (!blob || blob.size === 0) {
-        throw new Error("Empty photo received from server");
-      }
-
-      console.log("📦 Photo received:", blob.size, "bytes");
-
-      const blobUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = `photo-${index + 1}.jpg`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      // CLEANUP
-      setTimeout(() => {
-        window.URL.revokeObjectURL(blobUrl);
-      }, 2000);
-
-      console.log("✅ Watermark photo downloaded successfully");
-    } catch (error) {
-      console.error("❌ Watermark Download Error:", error);
-      alert(
-        "Watermark সহ Photo download failed\n\n" +
-          (error.message || "Unknown error")
-      );
-    }
-  };
-
-  // ==========================================
-  // Add to Favorites
-  // ==========================================
-  const addFavorite = async (photo) => {
-    try {
-      await addDoc(collection(db, "favorites"), {
-        jobId,
-        photoId: photo.id || photo.photoId,
-        imageUrl: photo.imageUrl,
-        createdAt: serverTimestamp(),
-      });
-
-      alert("❤️ Added to Favorites");
-    } catch (error) {
-      console.error("❌ Error adding favorite:", error);
-      alert("Failed to add favorite");
-    }
-  };
-
-  // ==========================================
-  // Load Watermark
-  // ==========================================
-  const loadWatermark = async () => {
-    try {
-      const jobRef = doc(db, "aiJobs", jobId);
-      const jobSnap = await getDoc(jobRef);
-
-      if (!jobSnap.exists()) {
-        setWatermarkText("Photography");
-        return;
-      }
-
-      const eventId = jobSnap.data().eventId;
-      if (!eventId) {
-        setWatermarkText("Photography");
-        return;
-      }
-
-      const eventRef = doc(db, "events", eventId);
-      const eventSnap = await getDoc(eventRef);
-
-      if (!eventSnap.exists()) {
-        setWatermarkText("Photography");
-        return;
-      }
-
-      const eventData = eventSnap.data();
-      const photographerId =
-        eventData.userId || eventData.photographerId || eventData.creatorId;
-
-      if (!photographerId) {
-        setWatermarkText("Photography");
-        return;
-      }
-
-      const settingsRef = doc(db, "settings", photographerId);
-      const settingsSnap = await getDoc(settingsRef);
-
-      if (settingsSnap.exists()) {
-        const data = settingsSnap.data();
-        const studio =
-          data.studioName || data.photographerName || "Photography";
-        setWatermarkText(studio);
-      } else {
-        setWatermarkText("Photography");
-      }
-    } catch (error) {
-      console.error("❌ Failed to load watermark:", error);
-      setWatermarkText("Photography");
-    }
-  };
-
-  // ==========================================
-  // Fetch Matched Photos
-  // ==========================================
+  // পেজ রিফ্রেশ দিলে ব্যাকএন্ড থেকে ডেটা রিকভার করার লজিক
   useEffect(() => {
-    if (!jobId) return;
+    if (!location.state?.matchedPhotos && jobId) {
+      fetch(`${AI_SERVER}/search-status/${jobId}`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.status === "completed") {
+            setMatchedPhotos(data.matches || []);
+            if (data.eventId) {
+              setEventId(data.eventId);
+              setFavorites(getFavorites(data.eventId));
+            }
+            if (data.studioName) {
+              setStudioName(data.studioName);
+            }
+          }
+        })
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    }
+  }, [jobId, location.state]);
 
-    loadWatermark();
+  const handleFavToggle = (photo) => {
+    const updatedFavs = toggleFavorite(eventId, photo);
+    setFavorites([...updatedFavs]);
+  };
 
-    const q = query(
-      collection(db, "photoMatches"),
-      where("jobId", "==", jobId)
-    );
+  if (loading) {
+    return <div className="text-center py-20 font-semibold text-gray-600">Loading Results...</div>;
+  }
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const photoList = snapshot.docs.map((document) => ({
-          id: document.id,
-          ...document.data(),
-        }));
-
-        setPhotos(photoList);
-        setLoading(false);
-      },
-      (error) => {
-        console.error("❌ Error fetching photos:", error);
-        setLoading(false);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [jobId]);
-
-  // ==========================================
-  // UI
-  // ==========================================
   return (
-    <div className="min-h-screen bg-gray-100 p-8">
-      <h1 className="text-4xl font-bold text-center mb-2">🎉 Your Photos</h1>
-      <p className="text-center text-gray-500 mb-8">
-        Total Photos Found: {photos.length}
-      </p>
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">
+          Your Found Photos ({matchedPhotos.length})
+        </h2>
 
-      {loading ? (
-        <div className="flex justify-center items-center h-40">
-          <p className="text-xl font-semibold text-gray-500">
-            Loading your photos...
-          </p>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => navigate(`/favorites/${eventId}`)}
+            className="bg-pink-100 hover:bg-pink-200 text-pink-700 font-semibold px-4 py-2 rounded-lg flex items-center gap-2 border border-pink-300 transition"
+          >
+            ❤️ Favorites ({favorites.length})
+          </button>
+
+          {/* একাধিক JPG ডাউনলোড বাটন */}
+          <button
+            onClick={() => {
+              const urls = matchedPhotos.map((item) => item.imageUrl || item.url || item.cloudinaryUrl);
+              const currentStudio = studioName || localStorage.getItem("studioName") || "Studio Name";
+              handleMultipleDownloads(urls, currentStudio);
+            }}
+            className="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-lg shadow transition flex items-center gap-2"
+          >
+            📥 Download All (JPG)
+          </button>
         </div>
-      ) : photos.length === 0 ? (
-        <div className="bg-white p-8 rounded-xl shadow text-center">
-          <h2 className="text-2xl font-bold">😔 No Photos Found</h2>
-          <p className="mt-3 text-gray-500">
-            Try another selfie or contact the photographer.
-          </p>
-        </div>
+      </div>
+
+      {matchedPhotos.length === 0 ? (
+        <p className="text-center text-gray-500 py-10">No photos matched your face.</p>
       ) : (
-        <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {photos.map((photo, index) => (
-            <div
-              key={photo.id}
-              className="bg-white rounded-xl shadow hover:shadow-xl transition overflow-hidden"
-            >
-              <img
-                src={photo.imageUrl}
-                alt="matched"
-                onClick={() => setSelectedIndex(index)}
-                className="w-full h-72 object-cover cursor-pointer"
-              />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {matchedPhotos.map((photo, index) => {
+            const photoUrl = photo.imageUrl || photo.cloudinaryUrl || photo.url;
+            const isFav = favorites.some((fav) => (fav.imageUrl || fav.url) === photoUrl);
 
-              <div className="p-4 flex gap-2">
+            return (
+              <div key={index} className="relative bg-white rounded-lg overflow-hidden border shadow-sm group">
                 <button
-                  onClick={() => downloadPhoto(photo.imageUrl, index)}
-                  className="w-1/2 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg text-sm font-semibold"
+                  onClick={() => handleFavToggle(photo)}
+                  className="absolute top-2 right-2 z-10 p-2 bg-white/80 backdrop-blur rounded-full shadow hover:scale-110 transition cursor-pointer"
+                  title={isFav ? "Remove from Favorites" : "Add to Favorites"}
                 >
-                  ⬇ Download
+                  {isFav ? '❤️' : '🤍'}
                 </button>
 
-                <button
-                  onClick={() => addFavorite(photo)}
-                  className="w-1/2 bg-pink-600 hover:bg-pink-700 text-white py-2 rounded-lg text-sm font-semibold"
-                >
-                  ❤️ Favorite
-                </button>
+                <img src={photoUrl} alt="Result" className="w-full h-48 object-cover" />
+
+                <div className="p-2 flex justify-between items-center bg-gray-50 border-t">
+                  <span className="text-xs text-gray-500 font-medium">
+                    Match: {photo.score ? (photo.score * 100).toFixed(0) : 100}%
+                  </span>
+
+                  {/* একক JPG ডাউনলোড বাটন */}
+                  <button
+                    onClick={() => {
+                      const currentStudio = photo.studioName || studioName || localStorage.getItem("studioName") || "Studio Name";
+                      handleSingleDownload(photoUrl, `photo_${index + 1}.jpg`, currentStudio);
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded transition flex items-center gap-1"
+                  >
+                    📥 Download
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* LIGHTBOX / MODAL */}
-      {selectedIndex !== null && (
-        <div className="fixed inset-0 bg-black/90 flex flex-col items-center justify-center z-50 p-4">
-          <button
-            onClick={() => setSelectedIndex(null)}
-            className="absolute top-5 right-8 text-white text-4xl hover:text-gray-300"
-          >
-            ✕
-          </button>
-
-          <button
-            onClick={() =>
-              setSelectedIndex(
-                (selectedIndex - 1 + photos.length) % photos.length
-              )
-            }
-            className="absolute left-5 text-white text-5xl hover:text-gray-300"
-          >
-            ❮
-          </button>
-
-          <div className="flex flex-col items-center max-w-full">
-            <img
-              src={photos[selectedIndex].imageUrl}
-              alt="Preview"
-              className="max-h-[75vh] max-w-[90vw] rounded-xl object-contain mb-4"
-            />
-
-            <div className="flex gap-4">
-              <button
-                onClick={() => addFavorite(photos[selectedIndex])}
-                className="bg-pink-600 hover:bg-pink-700 text-white px-6 py-2 rounded-lg font-semibold shadow"
-              >
-                ❤️ Add to Favorites
-              </button>
-
-              <button
-                onClick={() =>
-                  downloadPhoto(photos[selectedIndex].imageUrl, selectedIndex)
-                }
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-semibold shadow"
-              >
-                ⬇ Download Photo
-              </button>
-            </div>
-          </div>
-
-          <button
-            onClick={() =>
-              setSelectedIndex((selectedIndex + 1) % photos.length)
-            }
-            className="absolute right-5 text-white text-5xl hover:text-gray-300"
-          >
-            ❯
-          </button>
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
-
-export default Result;
