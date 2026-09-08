@@ -371,16 +371,16 @@ def perform_face_search(event_id: str, selfie_url: str, job_id: str):
                         "eventId": event_id,
                         "photoId": photo_id,
                         "imageUrl": img_url
-                    })
 
+                    })
             progress = int(((index + 1) / total_photos) * 100)
             job_ref.update({
                 "progress": progress,
                 "processedPhotos": index + 1,
                 "matchedPhotos": len(matched_photos),
                 "status": "processing"
-            })
 
+            })
         job_ref.update({
             "status": "completed",
             "progress": 100,
