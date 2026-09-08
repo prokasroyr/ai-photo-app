@@ -283,8 +283,9 @@ def process_event_photos_task(event_id: str):
 def perform_face_search(event_id: str, selfie_url: str, job_id: str):
     job_ref = db.collection("aiJobs").document(job_id)
     try:
-        print(f"\n🔎 AI Search Started | Job: {job_id}", flush=True)
+        print(f"\n🔎 AI Search Started | Job: {job_id} | Event ID: {event_id}", flush=True)
 
+        # ১. সেলফি ফেচ ও সাইজ কমানো (RAM সাশ্রয়)
         resp = requests.get(selfie_url, timeout=10, verify=False)
         if resp.status_code != 200:
             raise Exception("Failed to fetch selfie image")
@@ -298,7 +299,7 @@ def perform_face_search(event_id: str, selfie_url: str, job_id: str):
         rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         rgb_img = np.ascontiguousarray(rgb_img, dtype=np.uint8)
 
-        # সেলফির মুখ সহজে খোঁজার জন্য upsample যোগ
+        # ২. সেলফির ফেস এনকোডিং
         selfie_locs = face_recognition.face_locations(rgb_img, number_of_times_to_upsample=1)
         selfie_encs = face_recognition.face_encodings(rgb_img, selfie_locs)
         
@@ -306,38 +307,63 @@ def perform_face_search(event_id: str, selfie_url: str, job_id: str):
         gc.collect()
 
         if not selfie_encs:
+            print("❌ No face detected in the selfie image!", flush=True)
             job_ref.update({"status": "failed", "progress": 0, "error": "No face found in selfie"})
             return
 
         target_enc = selfie_encs[0]
+        print("📸 Selfie face encoding generated successfully.", flush=True)
+
+        # ৩. ডাটাবেজ থেকে ইভেন্টের ছবি নিয়ে আসা
         photos_query = db.collection("photos").where(filter=FieldFilter("eventId", "==", event_id)).get()
         total_photos = len(photos_query)
+        print(f"📊 Total Photos fetched from Firestore for event '{event_id}': {total_photos}", flush=True)
 
         if total_photos == 0:
+            print("⚠️ Warning: Firestore returned 0 photos for this eventId!", flush=True)
             job_ref.update({"status": "completed", "progress": 100, "matchedPhotos": 0})
             return
 
         matched_photos = []
+        matched_photo_ids = set()
+
         for index, photo_doc in enumerate(photos_query):
             photo_data = photo_doc.to_dict()
             photo_id = photo_doc.id
 
-            stored_encs = photo_data.get("faceEncodings", [])
-            matched = False
+            # ৪. ফায়ারবেসের একাধিক সম্ভাব্য ফিল্ড নেম থেকে এনকোডিং চেক করা
+            stored_encs = (
+                photo_data.get("faceEncodings") or 
+                photo_data.get("encodings") or 
+                photo_data.get("encoding") or 
+                []
+            )
 
+            matched = False
             for stored_enc in stored_encs:
                 try:
                     enc_arr = np.array(json.loads(stored_enc) if isinstance(stored_enc, str) else stored_enc)
                     
-                    # 🎯 Tolerance বাড়িয়ে 0.60 করা হয়েছে যাতে পারফেক্ট ম্যাচ খুঁজে পায়
-                    if face_recognition.compare_faces([enc_arr], target_enc, tolerance=0.60)[0]:
+                    # Euclidean distance বের করা
+                    dist = face_recognition.face_distance([enc_arr], target_enc)[0]
+                    
+                    # 🎯 Tolerance 0.58 দেওয়া হয়েছে যাতে কিছুটা লাইটিং পার্থক্য থাকলেও ম্যাচ করে
+                    if dist <= 0.58:
                         matched = True
+                        print(f"   ✅ Match found in photo [{photo_id}]! Distance: {dist:.4f}", flush=True)
                         break
-                except Exception:
-                    pass
+                except Exception as err:
+                    print(f"   ⚠️ Parsing error on photo {photo_id}: {err}", flush=True)
 
-            if matched:
-                img_url = photo_data.get("cloudinaryUrl") or photo_data.get("imageUrl") or photo_data.get("url")
+            if matched and photo_id not in matched_photo_ids:
+                matched_photo_ids.add(photo_id)
+                img_url = (
+                    photo_data.get("cloudinaryUrl") or 
+                    photo_data.get("secure_url") or 
+                    photo_data.get("imageUrl") or 
+                    photo_data.get("photoUrl") or 
+                    photo_data.get("url")
+                )
                 if img_url:
                     matched_photos.append({"photoId": photo_id, "imageUrl": img_url})
                     db.collection("photoMatches").add({
@@ -360,7 +386,7 @@ def perform_face_search(event_id: str, selfie_url: str, job_id: str):
             "progress": 100,
             "matchedPhotos": len(matched_photos)
         })
-        print(f"🎉 Search Finished. Matches Found: {len(matched_photos)}", flush=True)
+        print(f"🎉 Search Finished. Total Matches Found: {len(matched_photos)}", flush=True)
 
     except Exception as e:
         print(f"❌ Search Task Error: {e}", flush=True)
@@ -402,6 +428,8 @@ async def start_search(req: StartSearchRequest, background_tasks: BackgroundTask
         raise HTTPException(status_code=400, detail="eventId and selfieUrl are required")
 
     job_id = str(uuid.uuid4())
+    print(f"\n📩 New Search Request Received | Event ID: {req.eventId} | Job ID: {job_id}", flush=True)
+
     db.collection("aiJobs").document(job_id).set({
         "jobId": job_id,
         "eventId": req.eventId,
