@@ -373,13 +373,13 @@ def perform_face_search(event_id: str, selfie_url: str, job_id: str):
                         "imageUrl": img_url
 
                     })
-            progress = int(((index + 1) / total_photos) * 100)
-            job_ref.update({
+            if (index + 1) % 10 == 0 or (index + 1) == total_photos:
+                progress = int(((index + 1) / total_photos) * 100)
+                job_ref.update({
                 "progress": progress,
-                "processedPhotos": index + 1,
-                "matchedPhotos": len(matched_photos),
-                "status": "processing"
-
+               "processedPhotos": index + 1,
+                 "matchedPhotos": len(matched_photos),
+                 "status": "processing"
             })
         job_ref.update({
             "status": "completed",
@@ -450,7 +450,7 @@ async def get_search_status(search_id: str):
     data = job_doc.to_dict()
     if data.get("status") == "completed":
         matches = db.collection("photoMatches").where(filter=FieldFilter("jobId", "==", search_id)).get()
-        data["matches"] = [{"photoId": m.id, **m.to_dict()} for m in matches]
+        data["matches"] = [{"matchDocId": m.id, **m.to_dict()} for m in matches]
     return data
 
 @app.post("/download-single")
@@ -474,11 +474,14 @@ async def download_zip(req: DownloadZipRequest):
                     img_np = add_watermark(img_np, req.watermarkText)
                 _, encoded_img = cv2.imencode(".jpg", img_np)
                 zf.writestr(f"photo_{idx + 1}.jpg", encoded_img.tobytes())
+                
+                # 🧹 মেমরি খালি রাখা
+                del img_np, encoded_img, resp
+                gc.collect()
             except Exception:
                 pass
     zip_io.seek(0)
     return Response(content=zip_io.getvalue(), media_type="application/zip", headers={"Content-Disposition": f"attachment; filename={req.zipName}"})
-
 @app.delete("/delete-photo")
 async def delete_photo(req: DeletePhotoRequest):
     photo_ref = db.collection("photos").document(req.photoId)
