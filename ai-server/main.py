@@ -443,15 +443,50 @@ async def start_search(req: StartSearchRequest, background_tasks: BackgroundTask
 
 @app.get("/search-status/{search_id}")
 async def get_search_status(search_id: str):
-    job_doc = db.collection("aiJobs").document(search_id).get()
-    if not job_doc.exists:
-        return {"status": "not_found", "progress": 0}
-    
-    data = job_doc.to_dict()
-    if data.get("status") == "completed":
-        matches = db.collection("photoMatches").where(filter=FieldFilter("jobId", "==", search_id)).get()
-        data["matches"] = [{"matchDocId": m.id, **m.to_dict()} for m in matches]
-    return data
+    try:
+        job_doc = db.collection("aiJobs").document(search_id).get()
+
+        if not job_doc.exists:
+            return {
+                "status": "not_found",
+                "progress": 0,
+                "matches": []
+            }
+
+        data = job_doc.to_dict()
+
+        # Always fetch matches for this job
+        matches = db.collection("photoMatches") \
+            .where(filter=FieldFilter("jobId", "==", search_id)) \
+            .get()
+
+        data["matches"] = [
+            {
+                "matchDocId": m.id,
+                **m.to_dict()
+            }
+            for m in matches
+        ]
+
+        data["matchedPhotos"] = data["matches"]
+
+        print(
+            f"🔎 Search Status | Job: {search_id} | "
+            f"Status: {data.get('status')} | "
+            f"Progress: {data.get('progress', 0)} | "
+            f"Matches: {len(data['matches'])}",
+            flush=True
+        )
+
+        return data
+
+    except Exception as e:
+        print(f"❌ Search status error: {e}", flush=True)
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
 @app.post("/download-single")
 async def download_single(req: DownloadSingleRequest):
