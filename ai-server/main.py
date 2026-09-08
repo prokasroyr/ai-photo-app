@@ -125,7 +125,7 @@ class DownloadZipRequest(BaseModel):
     zipName: Optional[str] = "photos.zip"
     watermarkText: Optional[str] = None
 
-# ---------------- HELPER: IMAGE RESIZER ----------------
+# ---------------- HELPER: IMAGE RESIZER & WATERMARK ----------------
 def resize_image_if_large(img_np: np.ndarray, max_dim: int = 800) -> np.ndarray:
     """৮০০ পিক্সেলে নামিয়ে আনবে যাতে ফেস রিকগনিশন নিখুঁত হয়"""
     h, w = img_np.shape[:2]
@@ -340,18 +340,23 @@ def perform_face_search(event_id: str, selfie_url: str, job_id: str):
             )
 
             matched = False
+            best_score = 0.0
+
             for stored_enc in stored_encs:
                 try:
                     enc_arr = np.array(json.loads(stored_enc) if isinstance(stored_enc, str) else stored_enc)
                     
-                    # Euclidean distance বের করা
-                    dist = face_recognition.face_distance([enc_arr], target_enc)[0]
-                    
-                    # 🎯 Tolerance 0.58 দেওয়া হয়েছে যাতে কিছুটা লাইটিং পার্থক্য থাকলেও ম্যাচ করে
-                    if dist <= 0.58:
-                        matched = True
-                        print(f"   ✅ Match found in photo [{photo_id}]! Distance: {dist:.4f}", flush=True)
-                        break
+                    if enc_arr.shape[0] == 128:
+                        # Euclidean distance বের করা
+                        dist = face_recognition.face_distance([enc_arr], target_enc)[0]
+                        
+                        # 🎯 Tolerance 0.58 দেওয়া হয়েছে যাতে লাইটিং পার্থক্য থাকলেও ম্যাচ করে
+                        if dist <= 0.58:
+                            matched = True
+                            calc_score = max(0.0, min(1.0, 1.0 - dist))
+                            if calc_score > best_score:
+                                best_score = round(float(calc_score), 2)
+                            print(f"   ✅ Match found in photo [{photo_id}]! Distance: {dist:.4f}", flush=True)
                 except Exception as err:
                     print(f"   ⚠️ Parsing error on photo {photo_id}: {err}", flush=True)
 
@@ -365,22 +370,25 @@ def perform_face_search(event_id: str, selfie_url: str, job_id: str):
                     photo_data.get("url")
                 )
                 if img_url:
-                    matched_photos.append({"photoId": photo_id, "imageUrl": img_url})
-                    db.collection("photoMatches").add({
+                    match_item = {
                         "jobId": job_id,
                         "eventId": event_id,
                         "photoId": photo_id,
-                        "imageUrl": img_url
+                        "imageUrl": img_url,
+                        "score": best_score if best_score > 0 else 0.90
+                    }
+                    matched_photos.append(match_item)
+                    db.collection("photoMatches").add(match_item)
 
-                    })
             if (index + 1) % 10 == 0 or (index + 1) == total_photos:
                 progress = int(((index + 1) / total_photos) * 100)
                 job_ref.update({
-                "progress": progress,
-               "processedPhotos": index + 1,
-                 "matchedPhotos": len(matched_photos),
-                 "status": "processing"
-            })
+                    "progress": progress,
+                    "processedPhotos": index + 1,
+                    "matchedPhotos": len(matched_photos),
+                    "status": "processing"
+                })
+
         job_ref.update({
             "status": "completed",
             "progress": 100,
@@ -455,7 +463,6 @@ async def get_search_status(search_id: str):
 
         data = job_doc.to_dict()
 
-        # Always fetch matches for this job
         matches = db.collection("photoMatches") \
             .where(filter=FieldFilter("jobId", "==", search_id)) \
             .get()
@@ -482,7 +489,6 @@ async def get_search_status(search_id: str):
 
     except Exception as e:
         print(f"❌ Search status error: {e}", flush=True)
-
         raise HTTPException(
             status_code=500,
             detail=str(e)
@@ -490,12 +496,27 @@ async def get_search_status(search_id: str):
 
 @app.post("/download-single")
 async def download_single(req: DownloadSingleRequest):
-    resp = requests.get(req.imageUrl, timeout=15)
-    img_np = cv2.imdecode(np.frombuffer(resp.content, np.uint8), cv2.IMREAD_COLOR)
-    if req.watermarkText:
-        img_np = add_watermark(img_np, req.watermarkText)
-    _, encoded_img = cv2.imencode(".jpg", img_np)
-    return Response(content=encoded_img.tobytes(), media_type="image/jpeg", headers={"Content-Disposition": f"attachment; filename={req.filename}"})
+    try:
+        resp = requests.get(req.imageUrl, timeout=15, verify=False)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=400, detail="Failed to fetch image from URL")
+            
+        img_np = cv2.imdecode(np.frombuffer(resp.content, np.uint8), cv2.IMREAD_COLOR)
+        if img_np is None:
+            raise HTTPException(status_code=400, detail="Invalid image content")
+
+        if req.watermarkText:
+            img_np = add_watermark(img_np, req.watermarkText)
+
+        _, encoded_img = cv2.imencode(".jpg", img_np)
+        return Response(
+            content=encoded_img.tobytes(), 
+            media_type="image/jpeg", 
+            headers={"Content-Disposition": f"attachment; filename={req.filename}"}
+        )
+    except Exception as e:
+        print(f"❌ Download single error: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/download-zip")
 async def download_zip(req: DownloadZipRequest):
@@ -503,10 +524,16 @@ async def download_zip(req: DownloadZipRequest):
     with zipfile.ZipFile(zip_io, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         for idx, url in enumerate(req.imageUrls):
             try:
-                resp = requests.get(url, timeout=10)
+                resp = requests.get(url, timeout=10, verify=False)
+                if resp.status_code != 200:
+                    continue
                 img_np = cv2.imdecode(np.frombuffer(resp.content, np.uint8), cv2.IMREAD_COLOR)
+                if img_np is None:
+                    continue
+
                 if req.watermarkText:
                     img_np = add_watermark(img_np, req.watermarkText)
+
                 _, encoded_img = cv2.imencode(".jpg", img_np)
                 zf.writestr(f"photo_{idx + 1}.jpg", encoded_img.tobytes())
                 
@@ -516,7 +543,12 @@ async def download_zip(req: DownloadZipRequest):
             except Exception:
                 pass
     zip_io.seek(0)
-    return Response(content=zip_io.getvalue(), media_type="application/zip", headers={"Content-Disposition": f"attachment; filename={req.zipName}"})
+    return Response(
+        content=zip_io.getvalue(), 
+        media_type="application/zip", 
+        headers={"Content-Disposition": f"attachment; filename={req.zipName}"}
+    )
+
 @app.delete("/delete-photo")
 async def delete_photo(req: DeletePhotoRequest):
     photo_ref = db.collection("photos").document(req.photoId)
