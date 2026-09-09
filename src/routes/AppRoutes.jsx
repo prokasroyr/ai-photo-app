@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import DashboardLayout from "../components/layout/DashboardLayout";
 import EventDetails from "../pages/events/EventDetails";
@@ -27,107 +27,40 @@ function AppRoutes() {
     <BrowserRouter>
       <Routes>
 
-        {/* ============================= */}
-        {/* 🔐 PROTECTED PHOTOGRAPHER ROUTES */}
-        {/* ============================= */}
+        {/* Root URL-এ আসলে সরাসরি Login-এ পাঠাবে */}
+        <Route path="/" element={<Navigate to="/login" replace />} />
 
-        <Route element={<ProtectedRoute />}>
-
+        {/* ============================= */}
+        {/* 🔐 PROTECTED ADMIN / PHOTOGRAPHER ROUTES */}
+        {/* ============================= */}
+        <Route element={<ProtectedRoute allowedRoles={["admin", "photographer"]} />}>
           <Route element={<DashboardLayout />}>
-
-            <Route
-              path="/dashboard"
-              element={<Dashboard />}
-            />
-
-            <Route
-              path="/events/create"
-              element={<CreateEvent />}
-            />
-
-            <Route
-              path="/events"
-              element={<MyEvents />}
-            />
-
-            <Route
-              path="/events/edit/:id"
-              element={<EditEvent />}
-            />
-
-            <Route
-              path="/event/:id"
-              element={<EventDetails />}
-            />
-
-            <Route
-              path="/gallery"
-              element={<GalleryPage />}
-            />
-
-            <Route
-              path="/settings"
-              element={<Settings />}
-            />
-
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/events/create" element={<CreateEvent />} />
+            <Route path="/events" element={<MyEvents />} />
+            <Route path="/events/edit/:id" element={<EditEvent />} />
+            <Route path="/event/:id" element={<EventDetails />} />
+            <Route path="/gallery" element={<GalleryPage />} />
+            <Route path="/settings" element={<Settings />} />
           </Route>
-
         </Route>
-
 
         {/* ============================= */}
         {/* 👤 CLIENT ROUTES */}
         {/* ============================= */}
-
-        <Route
-          path="/"
-          element={<Home />}
-        />
-
-        <Route
-          path="/client"
-          element={<ClientHome />}
-        />
-
-        <Route
-          path="/client/upload/:id"
-          element={<UploadSelfie />}
-        />
-
-        <Route
-          path="/client/processing/:jobId" 
-          element={<Searching />} />
-        
-
-        <Route
-          path="/client/result/:jobId"
-          element={<Result />}
-        />
-
-        <Route
-          path="/search"
-          element={<SearchPhotos />}
-        />
-
-        <Route
-          path="/my-photos"
-          element={<MyPhotos />}
-        />
-
+        <Route path="/home" element={<Home />} />
+        <Route path="/client" element={<ClientHome />} />
+        <Route path="/client/upload/:id" element={<UploadSelfie />} />
+        <Route path="/client/processing/:jobId" element={<Searching />} />
+        <Route path="/client/result/:jobId" element={<Result />} />
+        <Route path="/search" element={<SearchPhotos />} />
+        <Route path="/my-photos" element={<MyPhotos />} />
 
         {/* ============================= */}
         {/* 🔑 AUTH ROUTES */}
         {/* ============================= */}
-
-        <Route
-          path="/login"
-          element={<Login />}
-        />
-
-        <Route
-          path="/register"
-          element={<Register />}
-        />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
 
       </Routes>
     </BrowserRouter>

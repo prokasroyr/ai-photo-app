@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../../services/firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "../../services/firebase"; // db ইমপোর্ট করা হয়েছে
 import { useNavigate, Link } from "react-router-dom";
 
 function Login() {
@@ -18,13 +19,30 @@ function Login() {
     try {
       setLoading(true);
 
-      // Firebase Login
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      // ১. Firebase Authentication দিয়ে লগইন
+      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      const user = userCredential.user;
+
+      // ২. Firestore থেকে ইউজারের Role রিড করা
+      let userRole = "client"; // ডিফল্ট রোল
+
+      try {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+          userRole = userDoc.data().role;
+        }
+      } catch (err) {
+        console.error("Error fetching user role:", err);
+      }
 
       alert("✅ Login Successful");
 
-      // Login করার পর Admin Dashboard-এ যাবে
-      navigate("/dashboard", { replace: true });
+      // ৩. Role এর উপর ভিত্তি করে সঠিক পেজে পাঠানো
+      if (userRole === "admin" || userRole === "photographer") {
+        navigate("/dashboard", { replace: true });
+      } else {
+        navigate("/client", { replace: true });
+      }
 
     } catch (error) {
       console.error("Login Error:", error);
@@ -34,13 +52,13 @@ function Login() {
       if (error.code === "auth/invalid-credential") {
         message = "❌ Email অথবা Password ভুল।";
       } else if (error.code === "auth/user-not-found") {
-        message = "❌ এই Email দিয়ে কোনো account পাওয়া যায়নি।";
+        message = "❌ এই Email দিয়ে কোনো account পাওয়া যায়নি।";
       } else if (error.code === "auth/wrong-password") {
         message = "❌ Password ভুল।";
       } else if (error.code === "auth/invalid-email") {
-        message = "❌ Email address সঠিক নয়।";
+        message = "❌ Email address সঠিক নয়।";
       } else if (error.code === "auth/too-many-requests") {
-        message = "⚠️ অনেকবার চেষ্টা করা হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।";
+        message = "⚠️ অনেকবার চেষ্টা করা হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।";
       }
 
       alert(message);
@@ -60,7 +78,7 @@ function Login() {
 
         {/* Title */}
         <h1 className="text-3xl font-bold text-center mb-6">
-          Admin Login
+          Login
         </h1>
 
         {/* Email */}
