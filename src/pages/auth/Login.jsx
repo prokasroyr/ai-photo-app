@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "../../services/firebase"; // db ইমপোর্ট করা হয়েছে
+import { auth, db } from "../../services/firebase";
 import { useNavigate, Link } from "react-router-dom";
 
 function Login() {
@@ -19,16 +19,17 @@ function Login() {
     try {
       setLoading(true);
 
-      // ১. Firebase Authentication দিয়ে লগইন
+      // ১. Firebase Authentication দিয়ে লগইন
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
       const user = userCredential.user;
 
-      // ২. Firestore থেকে ইউজারের Role রিড করা
-      let userRole = "client"; // ডিফল্ট রোল
+      // ২. Firestore থেকে ইউজারের Role চেক করা
+      // বাই-ডিফল্ট 'admin' রাখছি যেন ডাটাবেজে ডাটা না থাকলেও সরাসরি Dashboard-এ যায়
+      let userRole = "admin"; 
 
       try {
         const userDoc = await getDoc(doc(db, "users", user.uid));
-        if (userDoc.exists()) {
+        if (userDoc.exists() && userDoc.data().role) {
           userRole = userDoc.data().role;
         }
       } catch (err) {
@@ -37,7 +38,7 @@ function Login() {
 
       alert("✅ Login Successful");
 
-      // ৩. Role এর উপর ভিত্তি করে সঠিক পেজে পাঠানো
+      // ৩. সরাসরি ড্যাশবোর্ড বা ক্লায়েন্ট পেজে নেভিগেট
       if (userRole === "admin" || userRole === "photographer") {
         navigate("/dashboard", { replace: true });
       } else {
@@ -78,7 +79,7 @@ function Login() {
 
         {/* Title */}
         <h1 className="text-3xl font-bold text-center mb-6">
-          Login
+          Admin Login
         </h1>
 
         {/* Email */}
