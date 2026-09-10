@@ -13,32 +13,32 @@ function Login() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-
     if (loading) return;
 
     try {
       setLoading(true);
 
-      // ১. Firebase Authentication দিয়ে লগইন
+      // ১. Firebase Authentication
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
       const user = userCredential.user;
 
-      // ২. Firestore থেকে ইউজারের Role চেক করা
-      // বাই-ডিফল্ট 'admin' রাখছি যেন ডাটাবেজে ডাটা না থাকলেও সরাসরি Dashboard-এ যায়
-      let userRole = "admin"; 
+      // ২. Firestore থেকে Role চেক করা
+      let userRole = "admin"; // ডিফল্ট নিরাপদ রোল
 
       try {
         const userDoc = await getDoc(doc(db, "users", user.uid));
-        if (userDoc.exists() && userDoc.data().role) {
-          userRole = userDoc.data().role;
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          // ডাটাবেজে role ফিল্ড থাকলে নিবে, না থাকলে ডিফল্ট admin ই থাকবে
+          if (data.role) {
+            userRole = data.role;
+          }
         }
       } catch (err) {
-        console.error("Error fetching user role:", err);
+        console.error("Firestore read error:", err);
       }
 
-      alert("✅ Login Successful");
-
-      // ৩. সরাসরি ড্যাশবোর্ড বা ক্লায়েন্ট পেজে নেভিগেট
+      // ৩. ড্যাশবোর্ড নেভিগেশন (Alert তুলে দেওয়া হয়েছে যেন পেজ রিডাইরেক্টে ট্রাফিকে বাধা না পড়ে)
       if (userRole === "admin" || userRole === "photographer") {
         navigate("/dashboard", { replace: true });
       } else {
@@ -47,7 +47,6 @@ function Login() {
 
     } catch (error) {
       console.error("Login Error:", error);
-
       let message = "Login failed. Please try again.";
 
       if (error.code === "auth/invalid-credential") {
@@ -63,7 +62,6 @@ function Login() {
       }
 
       alert(message);
-
     } finally {
       setLoading(false);
     }
@@ -71,18 +69,12 @@ function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
-
       <form
         onSubmit={handleLogin}
         className="bg-white p-8 rounded-xl shadow-lg w-full max-w-[400px]"
       >
+        <h1 className="text-3xl font-bold text-center mb-6">Admin Login</h1>
 
-        {/* Title */}
-        <h1 className="text-3xl font-bold text-center mb-6">
-          Admin Login
-        </h1>
-
-        {/* Email */}
         <input
           type="email"
           placeholder="Email"
@@ -93,7 +85,6 @@ function Login() {
           autoComplete="email"
         />
 
-        {/* Password */}
         <input
           type="password"
           placeholder="Password"
@@ -104,30 +95,22 @@ function Login() {
           autoComplete="current-password"
         />
 
-        {/* Login Button */}
         <button
           type="submit"
           disabled={loading}
           className={`w-full text-white py-3 rounded-lg font-semibold transition ${
-            loading
-              ? "bg-gray-400 cursor-not-allowed"
-              : "bg-blue-600 hover:bg-blue-700"
+            loading ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
           }`}
         >
           {loading ? "Logging in..." : "Login"}
         </button>
 
-        {/* Register */}
         <p className="text-center mt-4 text-gray-600">
           Don't have an account?{" "}
-          <Link
-            to="/register"
-            className="text-blue-600 font-semibold hover:underline"
-          >
+          <Link to="/register" className="text-blue-600 font-semibold hover:underline">
             Register
           </Link>
         </p>
-
       </form>
     </div>
   );

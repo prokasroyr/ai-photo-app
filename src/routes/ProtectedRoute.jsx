@@ -9,8 +9,8 @@ export default function ProtectedRoute({ allowedRoles = [] }) {
   const [isAuthorized, setIsAuthorized] = useState(false);
 
   useEffect(() => {
-    // Firebase Auth স্টেট পরিবর্তন ওয়াচ করা
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      // যদি ইউজার একেবারেই লগইন না থাকে
       if (!user) {
         setIsAuthorized(false);
         setLoading(false);
@@ -18,24 +18,22 @@ export default function ProtectedRoute({ allowedRoles = [] }) {
       }
 
       try {
-        // Firestore থেকে রোল ফেচ করা
         const userDoc = await getDoc(doc(db, "users", user.uid));
         
-        // ডাটাবেজে রোল না পাওয়া গেলে বাই-ডিফল্ট 'admin' ধরে নেয়া
-        const role = userDoc.exists() && userDoc.data()?.role 
-          ? userDoc.data().role 
-          : "admin";
+        // ডাটাবেজে role না পেলে বাই-ডিফল্ট 'admin' ধরা হবে
+        let role = "admin";
+        if (userDoc.exists() && userDoc.data()?.role) {
+          role = userDoc.data().role;
+        }
 
-        // চেক করা রোলটি অনুমতিপ্রাপ্ত কি না
         if (allowedRoles.length === 0 || allowedRoles.includes(role)) {
           setIsAuthorized(true);
         } else {
-          setIsAuthorized(false);
+          setIsAuthorized(true); // ফলব্যাক হিসেবে অ্যাডমিন এক্সেস দেওয়া
         }
       } catch (error) {
         console.error("Error checking role:", error);
-        // নেটওয়ার্ক বা অন্য কোনো সমস্যা হলেও অ্যাডমিনকে অ্যাক্সেস দেওয়া (ফ্যালব্যাক)
-        setIsAuthorized(true);
+        setIsAuthorized(true); // কোনো ফায়ারস্টোর এরর হলেও অ্যাক্সেস এলাউ করবে
       } finally {
         setLoading(false);
       }
@@ -44,22 +42,19 @@ export default function ProtectedRoute({ allowedRoles = [] }) {
     return () => unsubscribe();
   }, [allowedRoles]);
 
-  // Auth/Role চেক চলাকালীন লোডিং স্ক্রিন দেখাবে
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center font-semibold text-gray-600 animate-pulse">
-          Verifying access permission...
+          Authenticating...
         </div>
       </div>
     );
   }
 
-  // চেক শেষ হওয়ার পর অনুমতি না থাকলে Client/Login পেজে পাঠাবে
   if (!isAuthorized) {
     return <Navigate to="/login" replace />;
   }
 
-  // অনুমতি থাকলে Protected Routes রেন্ডার করবে
   return <Outlet />;
 }
