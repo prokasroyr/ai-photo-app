@@ -43,7 +43,7 @@ export default function ProtectedRoute({ allowedRoles = [] }) {
       } catch (error) {
         console.error("Error checking role & approval:", error);
         setIsAuthorized(false);
-      } font-medium {
+      } finally { // 👈 এখানে ভুলটি ঠিক করা হয়েছে (font-medium সরিয়ে finally দেওয়া হয়েছে)
         setLoading(false);
       }
     });
