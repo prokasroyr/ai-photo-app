@@ -10,7 +10,7 @@ export default function Result() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // ১. ইনিশিয়াল স্টেট (Router State, SessionStorage অথবা ফ্যালব্যাক)
+  // ১. ইনিশিয়াল স্টেট
   const [matchedPhotos, setMatchedPhotos] = useState(() => {
     if (location.state?.matchedPhotos?.length > 0) {
       sessionStorage.setItem(`photos_${jobId}`, JSON.stringify(location.state.matchedPhotos));
@@ -29,47 +29,58 @@ export default function Result() {
   );
 
   const [favorites, setFavorites] = useState(() => getFavorites(eventId));
+  
+  // ব্যাকএন্ডে একবার রিকুয়েস্ট গেছে কিনা তা ট্র্যাক করার জন্য
   const [loading, setLoading] = useState(matchedPhotos.length === 0 && !!jobId);
 
-  // ২. যদি কোনো কারণে স্টেট ফাঁকা থাকে, ব্যাকএন্ড থেকে ডেটা রিকভার করা
+  // ২. ব্যাকএন্ড থেকে ডেটা রিকভার করা (Fix: Dependency Array)
   useEffect(() => {
-    if (matchedPhotos.length === 0 && jobId) {
-      setLoading(true);
-      fetch(`${AI_SERVER}/search-status/${jobId}`)
-        .then(async (res) => {
-          if (!res.ok) {
-            const text = await res.text();
-            throw new Error(`Search status failed (${res.status}): ${text}`);
-          }
-          return res.json();
-        })
-        .then((data) => {
-          console.log("🔎 Search status response:", data);
-          // ব্যাকএন্ডের সম্ভাব্য সব ধরনের কি (Key) চেক করা হচ্ছে
-          const photos =
-            data.matches ||
-            data.matchedPhotos ||
-            data.matched_photos ||
-            data.results ||
-            [];
+    // যদি অলরেডি ডেটা থাকে অথবা jobId না থাকে তবে ফেচ করার প্রয়োজন নেই
+    if (matchedPhotos.length > 0 || !jobId) return;
 
-          if (photos.length > 0) {
-            setMatchedPhotos(photos);
-            sessionStorage.setItem(`photos_${jobId}`, JSON.stringify(photos));
-          }
+    let isMounted = true;
+    setLoading(true);
 
-          if (data.eventId) {
-            setEventId(data.eventId);
-            setFavorites(getFavorites(data.eventId));
-          }
-          if (data.studioName) {
-            setStudioName(data.studioName);
-          }
-        })
-        .catch(console.error)
-        .finally(() => setLoading(false));
-    }
-  }, [jobId, matchedPhotos.length]);
+    fetch(`${AI_SERVER}/search-status/${jobId}`)
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(`Search status failed (${res.status}): ${text}`);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (!isMounted) return;
+
+        console.log("🔎 Search status response:", data);
+        
+        const photos =
+          data.matches ||
+          data.matchedPhotos ||
+          data.matched_photos ||
+          data.results ||
+          [];
+
+        setMatchedPhotos(photos);
+        sessionStorage.setItem(`photos_${jobId}`, JSON.stringify(photos));
+
+        if (data.eventId) {
+          setEventId(data.eventId);
+          setFavorites(getFavorites(data.eventId));
+        }
+        if (data.studioName) {
+          setStudioName(data.studioName);
+        }
+      })
+      .catch((err) => console.error("Fetch Error:", err))
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+
+    return () => {
+      isMounted = false; // Memory Leak বন্ধ করার জন্য
+    };
+  }, [jobId]); // matchedPhotos.length বাদ দেওয়া হয়েছে
 
   const handleFavToggle = (photo) => {
     const updatedFavs = toggleFavorite(eventId, photo);
@@ -99,16 +110,17 @@ export default function Result() {
             ❤️ Favorites ({favorites.length})
           </button>
 
-          {/* একাধিক JPG ডাউনলোড বাটন */}
           <button
             onClick={() => {
-              const urls = matchedPhotos.map(
-                (item) => item.imageUrl || item.url || item.cloudinaryUrl || item.path
-              );
+              const urls = matchedPhotos
+                .map((item) => item.imageUrl || item.url || item.cloudinaryUrl || item.path)
+                .filter(Boolean); // ফাঁকা URL রিমুভ করার জন্য
+              
               const currentStudio = studioName || localStorage.getItem("studioName") || "Studio Name";
               handleMultipleDownloads(urls, currentStudio);
             }}
             className="bg-green-600 hover:bg-green-700 text-white font-semibold px-4 py-2 rounded-lg shadow transition flex items-center gap-2"
+            disabled={matchedPhotos.length === 0}
           >
             📥 Download All (JPG)
           </button>
@@ -132,7 +144,7 @@ export default function Result() {
             const isFav = favorites.some((fav) => (fav.imageUrl || fav.url || fav.path) === photoUrl);
 
             return (
-              <div key={index} className="relative bg-white rounded-lg overflow-hidden border shadow-sm group">
+              <div key={photo._id || index} className="relative bg-white rounded-lg overflow-hidden border shadow-sm group">
                 <button
                   onClick={() => handleFavToggle(photo)}
                   className="absolute top-2 right-2 z-10 p-2 bg-white/80 backdrop-blur rounded-full shadow hover:scale-110 transition cursor-pointer"
@@ -141,14 +153,13 @@ export default function Result() {
                   {isFav ? '❤️' : '🤍'}
                 </button>
 
-                <img src={photoUrl} alt="Result" className="w-full h-48 object-cover" />
+                <img src={photoUrl} alt={`Result ${index + 1}`} className="w-full h-48 object-cover" />
 
                 <div className="p-2 flex justify-between items-center bg-gray-50 border-t">
                   <span className="text-xs text-gray-500 font-medium">
                     Match: {photo.score ? (photo.score * 100).toFixed(0) : 100}%
                   </span>
 
-                  {/* একক JPG ডাউনলোড বাটন */}
                   <button
                     onClick={() => {
                       const currentStudio = photo.studioName || studioName || localStorage.getItem("studioName") || "Studio Name";
