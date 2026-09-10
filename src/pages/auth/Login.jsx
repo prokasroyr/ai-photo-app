@@ -22,47 +22,57 @@ function Login() {
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
       const user = userCredential.user;
 
-      // ২. Firestore থেকে Role এবং Approval স্ট্যাটাস চেক
-      const userDoc = await getDoc(doc(db, "users", user.uid));
+      // ২. Firestore থেকে Role এবং Approval চেক করা
+      let role = "photographer";
+      let isApproved = false;
 
-      if (userDoc.exists()) {
-        const data = userDoc.data();
-        const role = data.role || "photographer";
-        const isApproved = data.isApproved === true || data.approved === true;
-
-        // 🛑 অ্যাডমিন ব্যতীত অন্য রোল যদি Approved না থাকে তবে লগআউট করিয়ে দেওয়া
-        if (role !== "admin" && !isApproved) {
-          await signOut(auth);
-          alert("⚠️ আপনার অ্যাকাউন্টটি এখনও অ্যাডমিন দ্বারা অনুমোদিত (Approve) হয়নি। অনুগ্রহ করে অপেক্ষা করুন।");
-          setLoading(false);
-          return;
-        }
-
-        // ৩. রোল অনুযায়ী রিডাইরেক্ট
-        if (role === "admin" || role === "photographer") {
-          navigate("/dashboard", { replace: true });
+      try {
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          role = data.role || "photographer";
+          isApproved = data.isApproved === true || data.approved === true;
         } else {
-          navigate("/client", { replace: true });
+          // ডেটাবেজে কোনো ডাটা না পাওয়া গেলে
+          isApproved = true; 
         }
-      } else {
-        // ফায়ারস্টোরে রেকর্ড না থাকলে বাই-ডিফল্ট ড্যাশবোর্ডে পাঠাবে
+      } catch (firestoreError) {
+        console.error("Firestore Error:", firestoreError);
+        // ফায়ারস্টোর রিড ফেল করলে অ্যাডমিন ব্যতিত সেশন ক্লিয়ার
+        alert("❌ Firestore Permission Error: " + firestoreError.message);
+        await signOut(auth);
+        setLoading(false);
+        return;
+      }
+
+      // 🛑 Approval চেক
+      if (role !== "admin" && !isApproved) {
+        await signOut(auth);
+        alert("⚠️ আপনার অ্যাকাউন্টটি এখনও অ্যাডমিন দ্বারা অনুমোদিত (Approve) হয়নি।");
+        setLoading(false);
+        return;
+      }
+
+      // ৩. ড্যাশবোর্ড নেভিগেশন
+      if (role === "admin" || role === "photographer") {
         navigate("/dashboard", { replace: true });
+      } else {
+        navigate("/client", { replace: true });
       }
 
     } catch (error) {
-      console.error("Login Error:", error);
-      let message = "Login failed. Please try again.";
+      console.error("Login Error Object:", error);
 
-      if (error.code === "auth/invalid-credential") {
-        message = "❌ Email অথবা Password ভুল।";
+      let message = error.message || "Login failed. Please try again.";
+
+      if (error.code === "auth/invalid-credential" || error.code === "auth/wrong-password") {
+        message = "❌ Email অথবা Password ভুল দেওয়া হয়েছে।";
       } else if (error.code === "auth/user-not-found") {
         message = "❌ এই Email দিয়ে কোনো account পাওয়া যায়নি।";
-      } else if (error.code === "auth/wrong-password") {
-        message = "❌ Password ভুল।";
       } else if (error.code === "auth/invalid-email") {
         message = "❌ Email address সঠিক নয়।";
       } else if (error.code === "auth/too-many-requests") {
-        message = "⚠️ অনেকবার চেষ্টা করা হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।";
+        message = "⚠️ অনেকবার ভুল চেষ্টা করা হয়েছে। কিছুক্ষণ পর আবার চেষ্টা করুন।";
       }
 
       alert(message);
