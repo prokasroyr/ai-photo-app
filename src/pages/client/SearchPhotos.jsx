@@ -10,30 +10,24 @@ export default function SearchPhotos() {
 
   // ইভেন্ট কোড ও সেলফি স্টেট
   const [eventId, setEventId] = useState(
-    urlEventId || location.state?.eventId || ""
+    urlEventId || location.state?.eventId || localStorage.getItem("lastEventId") || ""
   );
-  const [step, setStep] = useState(eventId ? 2 : 1); // ইভেন্ট আইডি থাকলে সরাসরি স্টেপ ২ তে যাবে
   const [selfie, setSelfie] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
-    if (urlEventId || location.state?.eventId) {
-      setStep(2);
+    if (!eventId) {
+      console.warn("⚠️ No Event ID found. Redirecting to home...");
     }
-  }, [urlEventId, location.state]);
+  }, [eventId]);
 
-  // স্টেপ ১: ইভেন্ট কোড সাবমিট
-  const handleEventSubmit = (e) => {
-    e.preventDefault();
+  // সেলফি আপলোড ও AI সার্চ শুরু
+  const handleSearch = async () => {
     if (!eventId.trim()) {
-      alert("অনুগ্রহ করে ইভেন্ট কোডটি লিখুন!");
+      alert("ইভেন্ট কোড পাওয়া যায়নি! অনুগ্রহ করে আবার চেষ্টা করুন।");
       return;
     }
-    setStep(2);
-  };
 
-  // স্টেপ ২: সেলফি আপলোড ও AI সার্চ শুরু
-  const handleSearch = async () => {
     if (!selfie) {
       alert("অনুগ্রহ করে আপনার একটি সেলফি সিলেক্ট করুন!");
       return;
@@ -87,52 +81,22 @@ export default function SearchPhotos() {
     <div className="min-h-[70vh] flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-lg border p-6 text-center">
 
-        {/* ---------------- STEP 1: EVENT CODE INPUT ---------------- */}
-        {step === 1 && (
-          <form onSubmit={handleEventSubmit} className="space-y-4">
-            <h1 className="text-2xl font-bold text-gray-800 flex items-center justify-center gap-2">
-              📸 Find Your Photos
-            </h1>
-            <p className="text-xs text-gray-500">
-              ফটোগ্রাফারের দেওয়া Event Code টি বসিয়ে আপনার ইভেন্টে প্রবেশ করুন
-            </p>
-
-            <div className="text-left">
-              <label className="text-xs font-semibold text-gray-700 block mb-1">
-                Event Passcode
-              </label>
-              <input
-                type="text"
-                placeholder="E.G. WEDDING2026"
-                value={eventId}
-                onChange={(e) => setEventId(e.target.value)}
-                className="w-full border rounded-lg px-4 py-2.5 text-center font-mono uppercase tracking-widest text-gray-700 outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition duration-200"
-            >
-              Continue ➔
-            </button>
-          </form>
-        )}
-
-        {/* ---------------- STEP 2: UPLOAD SELFIE ---------------- */}
-        {step === 2 && !isSearching && (
+        {/* ---------------- UPLOAD SELFIE & SEARCH ---------------- */}
+        {!isSearching ? (
           <div className="space-y-5">
-            <div className="flex justify-between items-center border-b pb-3">
-              <span className="text-xs bg-purple-100 text-purple-700 font-semibold px-2.5 py-1 rounded-full">
-                Event: {eventId}
-              </span>
-              <button
-                onClick={() => setStep(1)}
-                className="text-xs text-gray-400 hover:text-gray-600 underline"
-              >
-                Change Code
-              </button>
-            </div>
+            {eventId && (
+              <div className="flex justify-between items-center border-b pb-3">
+                <span className="text-xs bg-purple-100 text-purple-700 font-semibold px-2.5 py-1 rounded-full">
+                  Event Code: {eventId}
+                </span>
+                <button
+                  onClick={() => navigate("/client")}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium underline"
+                >
+                  Change Code
+                </button>
+              </div>
+            )}
 
             <h2 className="text-xl font-bold text-gray-800">
               🤳 Take or Upload a Selfie
@@ -165,10 +129,8 @@ export default function SearchPhotos() {
               🔍 Find My Photos
             </button>
           </div>
-        )}
-
-        {/* ---------------- SEARCHING LOADING STATE ---------------- */}
-        {isSearching && (
+        ) : (
+          /* ---------------- SEARCHING LOADING STATE ---------------- */
           <div className="py-6 space-y-4">
             <p className="text-lg font-semibold text-gray-800">
               Connecting to AI Server...
