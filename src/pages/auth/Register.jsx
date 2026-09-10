@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createUserWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../../services/firebase";
+import { doc, setDoc } from "firebase/firestore";
+import { auth, db } from "../../services/firebase";
 import { useNavigate, Link } from "react-router-dom";
 
 function Register() {
@@ -8,18 +9,38 @@ function Register() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleRegister = async (e) => {
     e.preventDefault();
+    if (loading) return;
 
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
+      setLoading(true);
 
-      alert("✅ Account Created Successfully");
+      // ১. Firebase Auth এ ইউজার তৈরি
+      const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const user = userCredential.user;
 
+      // ২. Firestore এ পেন্ডিং ইউজার হিসেবে ডাটা সেভ করা
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        email: email.trim(),
+        role: "photographer",
+        isApproved: false, // 🛑 বাই-ডিফল্ট অ্যাপ্রুভ থাকবে না
+        createdAt: new Date(),
+      });
+
+      // অ্যাকাউন্ট খোলার পর সেশন ক্লিয়ার করে দেওয়া
+      await auth.signOut();
+
+      alert("⏳ অ্যাকাউন্ট তৈরি হয়েছে! অ্যাডমিন অনুমোদনের (Approval) পর লগইন করতে পারবেন।");
       navigate("/login");
     } catch (error) {
+      console.error("Register Error:", error);
       alert(error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -53,9 +74,12 @@ function Register() {
 
         <button
           type="submit"
-          className="w-full bg-blue-600 text-white py-3 rounded-lg"
+          disabled={loading}
+          className={`w-full text-white py-3 rounded-lg font-semibold transition ${
+            loading ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+          }`}
         >
-          Create Account
+          {loading ? "Creating Account..." : "Create Account"}
         </button>
 
         <p className="text-center mt-4">

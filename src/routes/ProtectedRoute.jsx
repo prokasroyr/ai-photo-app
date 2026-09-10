@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet } from "react-router-dom";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../services/firebase";
 
@@ -10,7 +10,6 @@ export default function ProtectedRoute({ allowedRoles = [] }) {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      // যদি ইউজার একেবারেই লগইন না থাকে
       if (!user) {
         setIsAuthorized(false);
         setLoading(false);
@@ -20,21 +19,31 @@ export default function ProtectedRoute({ allowedRoles = [] }) {
       try {
         const userDoc = await getDoc(doc(db, "users", user.uid));
         
-        // ডাটাবেজে role না পেলে বাই-ডিফল্ট 'admin' ধরা হবে
-        let role = "admin";
-        if (userDoc.exists() && userDoc.data()?.role) {
-          role = userDoc.data().role;
-        }
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          const role = data.role || "photographer";
+          const isApproved = data.isApproved === true || data.approved === true;
 
-        if (allowedRoles.length === 0 || allowedRoles.includes(role)) {
-          setIsAuthorized(true);
+          // 🛑 অ্যাডমিন ছাড়া অন্য কাউকে unapproved অবস্থায় ঢুকতে দেওয়া হবে না
+          if (role !== "admin" && !isApproved) {
+            await signOut(auth);
+            setIsAuthorized(false);
+            setLoading(false);
+            return;
+          }
+
+          if (allowedRoles.length === 0 || allowedRoles.includes(role)) {
+            setIsAuthorized(true);
+          } else {
+            setIsAuthorized(false);
+          }
         } else {
-          setIsAuthorized(true); // ফলব্যাক হিসেবে অ্যাডমিন এক্সেস দেওয়া
+          setIsAuthorized(true); // ফলব্যাক এক্সেস
         }
       } catch (error) {
-        console.error("Error checking role:", error);
-        setIsAuthorized(true); // কোনো ফায়ারস্টোর এরর হলেও অ্যাক্সেস এলাউ করবে
-      } finally {
+        console.error("Error checking role & approval:", error);
+        setIsAuthorized(false);
+      } font-medium {
         setLoading(false);
       }
     });

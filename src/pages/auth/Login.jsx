@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../../services/firebase";
 import { useNavigate, Link } from "react-router-dom";
@@ -22,27 +22,31 @@ function Login() {
       const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
       const user = userCredential.user;
 
-      // ২. Firestore থেকে Role চেক করা
-      let userRole = "admin"; // ডিফল্ট নিরাপদ রোল
+      // ২. Firestore থেকে Role এবং Approval স্ট্যাটাস চেক
+      const userDoc = await getDoc(doc(db, "users", user.uid));
 
-      try {
-        const userDoc = await getDoc(doc(db, "users", user.uid));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          // ডাটাবেজে role ফিল্ড থাকলে নিবে, না থাকলে ডিফল্ট admin ই থাকবে
-          if (data.role) {
-            userRole = data.role;
-          }
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        const role = data.role || "photographer";
+        const isApproved = data.isApproved === true || data.approved === true;
+
+        // 🛑 অ্যাডমিন ব্যতীত অন্য রোল যদি Approved না থাকে তবে লগআউট করিয়ে দেওয়া
+        if (role !== "admin" && !isApproved) {
+          await signOut(auth);
+          alert("⚠️ আপনার অ্যাকাউন্টটি এখনও অ্যাডমিন দ্বারা অনুমোদিত (Approve) হয়নি। অনুগ্রহ করে অপেক্ষা করুন।");
+          setLoading(false);
+          return;
         }
-      } catch (err) {
-        console.error("Firestore read error:", err);
-      }
 
-      // ৩. ড্যাশবোর্ড নেভিগেশন (Alert তুলে দেওয়া হয়েছে যেন পেজ রিডাইরেক্টে ট্রাফিকে বাধা না পড়ে)
-      if (userRole === "admin" || userRole === "photographer") {
-        navigate("/dashboard", { replace: true });
+        // ৩. রোল অনুযায়ী রিডাইরেক্ট
+        if (role === "admin" || role === "photographer") {
+          navigate("/dashboard", { replace: true });
+        } else {
+          navigate("/client", { replace: true });
+        }
       } else {
-        navigate("/client", { replace: true });
+        // ফায়ারস্টোরে রেকর্ড না থাকলে বাই-ডিফল্ট ড্যাশবোর্ডে পাঠাবে
+        navigate("/dashboard", { replace: true });
       }
 
     } catch (error) {
@@ -52,13 +56,13 @@ function Login() {
       if (error.code === "auth/invalid-credential") {
         message = "❌ Email অথবা Password ভুল।";
       } else if (error.code === "auth/user-not-found") {
-        message = "❌ এই Email দিয়ে কোনো account পাওয়া যায়নি।";
+        message = "❌ এই Email দিয়ে কোনো account পাওয়া যায়নি।";
       } else if (error.code === "auth/wrong-password") {
         message = "❌ Password ভুল।";
       } else if (error.code === "auth/invalid-email") {
-        message = "❌ Email address সঠিক নয়।";
+        message = "❌ Email address সঠিক নয়।";
       } else if (error.code === "auth/too-many-requests") {
-        message = "⚠️ অনেকবার চেষ্টা করা হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।";
+        message = "⚠️ অনেকবার চেষ্টা করা হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।";
       }
 
       alert(message);
@@ -73,7 +77,7 @@ function Login() {
         onSubmit={handleLogin}
         className="bg-white p-8 rounded-xl shadow-lg w-full max-w-[400px]"
       >
-        <h1 className="text-3xl font-bold text-center mb-6">Admin Login</h1>
+        <h1 className="text-3xl font-bold text-center mb-6">Login</h1>
 
         <input
           type="email"
