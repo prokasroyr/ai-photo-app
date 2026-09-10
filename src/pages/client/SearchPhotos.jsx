@@ -8,9 +8,11 @@ export default function SearchPhotos() {
   const location = useLocation();
   const { eventId: urlEventId } = useParams();
 
-  const [eventId, setEventId] = useState(
+  // ইভেন্ট আইডি ও সেলফি ফাইল রিসিভ করা
+  const [eventId] = useState(
     urlEventId || location.state?.eventId || localStorage.getItem("lastEventId") || ""
   );
+  const [selfieFile] = useState(location.state?.selfieFile || null);
   const [isSearching, setIsSearching] = useState(false);
 
   useEffect(() => {
@@ -21,30 +23,49 @@ export default function SearchPhotos() {
 
   const handleSearch = async () => {
     if (!eventId.trim()) {
-      alert("ইভেন্ট কোড পাওয়া যায়নি! অনুগ্রহ করে আবার চেষ্টা করুন।");
+      alert("ইভেন্ট কোড পাওয়া যায়নি! অনুগ্রহ করে আবার চেষ্টা করুন।");
       return;
     }
 
     setIsSearching(true);
 
     try {
+      let selfieUrl = "";
+
+      // ১. যদি সেলফি ফাইল থাকে, তবে ব্যাকএন্ডে আপলোড করে URL নেওয়া হবে
+      if (selfieFile) {
+        const formData = new FormData();
+        formData.append("file", selfieFile);
+
+        const uploadRes = await fetch(`${AI_SERVER}/upload-selfie`, {
+          method: "POST",
+          body: formData,
+        });
+
+        const uploadData = await uploadRes.json();
+        if (!uploadRes.ok) {
+          throw new Error(uploadData.detail || "Selfie upload failed");
+        }
+        selfieUrl = uploadData.path || uploadData.url || uploadData.filePath || uploadData.selfieUrl || "";
+      }
+
+      // ২. AI সার্চ শুরু করা
       const searchRes = await fetch(`${AI_SERVER}/start-search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           eventId: eventId.trim(),
           event_id: eventId.trim(),
-          selfieUrl: "", // 🛑 ব্যাকএন্ড ফিল্ড রিকোয়ার্ড রাখলে খালি স্ট্রিং পাস হবে
-          selfie_url: "",
+          selfieUrl: selfieUrl,
+          selfie_url: selfieUrl,
         }),
       });
 
       const searchData = await searchRes.json();
-      
+
       if (!searchRes.ok) {
-        // 🛑 [object Object] সমস্যা ফিক্স: সঠিকভাবে এরর মেসেজ রিড করা
-        const errorMsg = typeof searchData.detail === "object" 
-          ? JSON.stringify(searchData.detail) 
+        const errorMsg = typeof searchData.detail === "object"
+          ? JSON.stringify(searchData.detail)
           : (searchData.detail || searchData.message || "Search start failed");
         throw new Error(errorMsg);
       }
@@ -55,6 +76,7 @@ export default function SearchPhotos() {
         throw new Error("Server returned response, but no Job ID was provided.");
       }
 
+      // প্রোগ্রেস পেজে রিডাইরেক্ট
       navigate(`/client/processing/${jobId}`);
 
     } catch (error) {
@@ -84,17 +106,28 @@ export default function SearchPhotos() {
               </div>
             )}
 
+            {selfieFile && (
+              <div className="py-2">
+                <img
+                  src={URL.createObjectURL(selfieFile)}
+                  alt="Selected Selfie"
+                  className="w-24 h-24 rounded-full object-cover mx-auto border-2 border-purple-500 shadow-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">Selfie Ready</p>
+              </div>
+            )}
+
             <button
               onClick={handleSearch}
               className="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 rounded-lg shadow transition duration-200"
             >
-              🔍 Find My Photos
+              🔍 Start AI Search
             </button>
           </div>
         ) : (
           <div className="py-6 space-y-4">
             <p className="text-lg font-semibold text-gray-800">
-              Connecting to AI Server...
+              Uploading & Connecting to AI Server...
             </p>
             <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
               <div className="bg-purple-600 h-3 rounded-full animate-pulse w-full" />

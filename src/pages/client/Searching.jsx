@@ -7,7 +7,7 @@ export default function Searching() {
   const { jobId } = useParams();
   const navigate = useNavigate();
 
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState(10);
   const [isFailed, setIsFailed] = useState(false);
 
   useEffect(() => {
@@ -20,10 +20,9 @@ export default function Searching() {
 
         if (data.status === "completed") {
           clearInterval(interval);
-          // সার্চ কমপ্লিট হলে রেজাল্ট পেজে ডেটাসহ পাঠিয়ে দেওয়া হবে
           navigate(`/client/result/${jobId}`, {
             state: {
-              matchedPhotos: data.matches || [],
+              matchedPhotos: data.matches || data.results || [],
               eventId: data.eventId || "default_event",
             },
           });
@@ -31,7 +30,7 @@ export default function Searching() {
           clearInterval(interval);
           setIsFailed(true);
         } else {
-          setProgress(data.progress || 50); // প্রোগ্রেস পার্সেন্টেজ আপডেট
+          setProgress(data.progress || ((prev) => Math.min(prev + 15, 90)));
         }
       } catch (err) {
         console.error("Status polling error:", err);

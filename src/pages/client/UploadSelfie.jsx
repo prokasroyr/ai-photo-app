@@ -1,4 +1,4 @@
-import { useNavigate, useParams } from "react-router-dom"; // react-router-dom ব্যবহার করা ভালো
+import { useNavigate, useParams } from "react-router-dom";
 import { useState } from "react";
 
 function UploadSelfie() {
@@ -11,7 +11,6 @@ function UploadSelfie() {
     const file = e.target.files[0];
     if (!file) return;
 
-    // আগের প্রিভিউ থাকলে তা মেমোরি থেকে মুছে ফেলা (Memory Leak রোধ করতে)
     if (preview) {
       URL.revokeObjectURL(preview);
     }
@@ -26,7 +25,7 @@ function UploadSelfie() {
       return;
     }
 
-    // সেলফি ফাইলটি স্টেট আকারে SearchPhotos পেজে পাঠানো হচ্ছে
+    // SearchPhotos পেজে eventId এবং selfieFile দুটোই পাস করা হচ্ছে
     navigate("/search", {
       state: {
         eventId: id,
@@ -45,7 +44,7 @@ function UploadSelfie() {
           accept="image/*"
           capture="user"
           onChange={handleSelect}
-          className="mb-5 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+          className="mb-5 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer"
         />
 
         {preview && (
