@@ -8,7 +8,6 @@ export default function SearchPhotos() {
   const location = useLocation();
   const { eventId: urlEventId } = useParams();
 
-  // ইভেন্ট কোড স্টেট
   const [eventId, setEventId] = useState(
     urlEventId || location.state?.eventId || localStorage.getItem("lastEventId") || ""
   );
@@ -16,11 +15,10 @@ export default function SearchPhotos() {
 
   useEffect(() => {
     if (!eventId) {
-      console.warn("⚠️ No Event ID found. Redirecting to home...");
+      console.warn("⚠️ No Event ID found.");
     }
   }, [eventId]);
 
-  // AI সার্চ শুরু
   const handleSearch = async () => {
     if (!eventId.trim()) {
       alert("ইভেন্ট কোড পাওয়া যায়নি! অনুগ্রহ করে আবার চেষ্টা করুন।");
@@ -30,22 +28,33 @@ export default function SearchPhotos() {
     setIsSearching(true);
 
     try {
-      // সার্চ স্টার্ট API কল
       const searchRes = await fetch(`${AI_SERVER}/start-search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           eventId: eventId.trim(),
           event_id: eventId.trim(),
+          selfieUrl: "", // 🛑 ব্যাকএন্ড ফিল্ড রিকোয়ার্ড রাখলে খালি স্ট্রিং পাস হবে
+          selfie_url: "",
         }),
       });
 
       const searchData = await searchRes.json();
-      if (!searchRes.ok) throw new Error(searchData.detail || "Search start failed");
+      
+      if (!searchRes.ok) {
+        // 🛑 [object Object] সমস্যা ফিক্স: সঠিকভাবে এরর মেসেজ রিড করা
+        const errorMsg = typeof searchData.detail === "object" 
+          ? JSON.stringify(searchData.detail) 
+          : (searchData.detail || searchData.message || "Search start failed");
+        throw new Error(errorMsg);
+      }
 
       const jobId = searchData.jobId || searchData.job_id || searchData.taskId;
 
-      // প্রোগ্রেস পেজে রিডাইরেক্ট
+      if (!jobId) {
+        throw new Error("Server returned response, but no Job ID was provided.");
+      }
+
       navigate(`/client/processing/${jobId}`);
 
     } catch (error) {
@@ -83,7 +92,6 @@ export default function SearchPhotos() {
             </button>
           </div>
         ) : (
-          /* ---------------- SEARCHING LOADING STATE ---------------- */
           <div className="py-6 space-y-4">
             <p className="text-lg font-semibold text-gray-800">
               Connecting to AI Server...
